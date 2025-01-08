@@ -1,0 +1,244 @@
+R-codes for the knotweed performance across ranges and environmental drivers of trait variation 
+
+==============
+
+#' @param dataset - the dataframe containing the response and explanatory variables. Dataset is freely accessible from: https://doi.org/10.5281/zenodo.14603581.
+
+ # Load the required packages 
+my_packages <- c("factoextra", "ggplot2", "corrplot", "lme4", "multcomp", "car", "ggpubr", "sjPlot", "performance", "partR2", "viridis", "hrbrthemes")
+lapply(my_packages, library, character.only=TRUE)
+
+
+
+
+#'Calculate the climatic differences and soil nutrient differences among ranges by PCA (Principal Component Analysis) 
+
+ # Read the data file, code Range and Population as factors
+data <- read.table("dataset", header=TRUE)
+data$Range<-as.factor(data$Range)
+data$Pop<-as.factor(data$Pop)
+
+ # Compute PCA on climate and soil using the prcomp function and extract variable loadings on each principal component 
+pca <- prcomp(dataset, scale=TRUE)
+summary(pca)
+pca$rotation 
+
+ # Visualize eigenvalues by scree plot and show the percentage of variances explained by each principal component 
+eig.val <- get_eigenvalue(pca)
+eig.val
+fviz_eig(pca, addlabels = TRUE, ylim = c(0,70), ggtheme=theme(axis.text=element_text(size=15), axis.title=element_text(size=15))) 
+
+ # Generate a biplot of individuals and variables 
+fviz_pca_biplot(pca, col.var = "black", addEllipses = TRUE, geom.ind="point", pointshape= 21, pointsize=2.5, palette = "rainbow",  fill.ind=data$Range, repel = TRUE, labelsize = 4, ggtheme=theme(text = element_text(size = 20), panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))) 
+
+
+
+
+
+#' Test for range differences in individual variables by GLMMs (Generalized Linear Mixed Models)
+model <- lmer(trait~Range+(1|Pop), data = dataset) # model for stem and leaf traits 
+model1 <- glm.nb(formula = trait~Range, data = dataset, link = log) # model for pathogens and herbivory 
+
+ # Run Tukey post-hoc tests to identify which ranges differ from each other
+summary(glht(model, linfct = mcp(Range= "Tukey")))
+
+ # Generate density plots to visualize variation among geographic ranges 
+p <- ggplot(data, aes(x=trait, fill=Range)) +
+  geom_density(alpha=0.3) + theme_bw() + theme(panel.border = element_rect(colour = "black", fill=NA, size=0.8), panel.grid.major = element_blank(), text = element_text(size=26, colour="black"), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ggtitle("") + xlab(expression(paste())) + theme(legend.position="none")
+
+p + theme(axis.text.x = element_text( color="black", 
+                                      size=26),
+          axis.text.y = element_text(color="black", 
+                                     size=26))
+
+
+
+
+#' Test for taxa and ploidy effects on trait variation within each range by GLMMs
+model <- lmer(trait~Ploidy+(1|Pop), data = dataset) # where the dataset is represented by either the Chinese, European or North American subset
+Anova(model)
+
+ # Run Tukey post-hoc tests to identify which ploidy levels differ from each other, within each range
+summary(glht(model, linfct = mcp(Ploidy= "Tukey")))
+
+ # Generate combined barplots to visualize variation among ploidy levels within range 
+p <- ggplot(data = dataset, aes(x = Ploidy, y = trait, color = Ploidy, top=TRUE, frame=FALSE)) + geom_boxplot(aes(fill = Ploidy), position = position_dodge(0.9)) + stat_summary(fun.y=mean, geom="point", shape=20, size=3, color="black") + theme_update(text=element_text(size=30))+ theme(legend.position = "none") + labs(x = "") + labs(y="trait") +  scale_y_continuous(expand=c(0,0),limits=c(0,50))
+p + facet_wrap(~Range)
+
+
+
+
+
+#' Global models to test for environmental drivers of knotweed variation 
+ # Get global bioclimatic and soil PCs scores to use in the regression # Only include PCs that explain >10% of the variation in the data
+pcaBioclim <- pca$x[,1:3]
+pcaBioclim
+
+pcaSoil <- pca$x[,1:3]
+pcaSoil
+
+ # Rename and append the new columns containing the climate and soil PC data to the original dataset using the command "cbind". As different variables are on different units, proceed to scale the data. 
+ # Construct a global set of 23 models for each individual trait that include only the climate PCs, the soil PCs and canopy cover or any possible combination of these variables all either without range, with range or with range interactions.  
+
+
+ Null <- glmer(trait~1+(1|Pop), data = scaled, REML = FALSE)
+ summary(Null)
+
+ Range <- glmer(trait~Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(Range)
+
+
+# Climate model 
+ Climate <- glmer(trait~PC1+PC2+PC3+(1|Pop), data = scaled, REML = FALSE)
+ summary(Climate)
+
+ ClimateRange <- glmer(trait~PC1+PC2+PC3+Range+(1|Pop), data = scaled, REML = FALSE) 
+ summary(ClimateRange)
+
+ ClimateRangeInteract<- glmer(trait~(PC1+PC2+PC3)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateRangeInteract)
+
+
+# Soil model 
+ Soil <- glmer(trait~PC1s+PC2s+PC3s+(1|Pop), data = scaled, REML = FALSE)
+ summary(Soil)
+
+ SoilRange <- glmer(trait~PC1s+PC2s+PC3s+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(SoilRange)
+
+ SoilRangeInteract <- glmer(trait~(PC1s+PC2s+PC3s)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(SoilRangeInteract)
+
+
+# Canopy model 
+ Canopy <- glmer(trait~Canopy+(1|Pop), data = scaled, REML = FALSE)
+ summary(Canopy)
+
+ CanopyRange <- glmer(trait~Canopy+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(CanopyRange)
+
+ CanopyRangeInteract <- glmer(trait~Canopy*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(CanopyRangeInteract)
+
+
+# Climate plus soil model
+ ClimateSoil <- glmer(trait~PC1+PC2+PC3+PC1s+PC2s+PC3s+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoil)
+
+ ClimateSoilRange <- glmer(trait~PC1+PC2+PC3+PC1s+PC2s+PC3s+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoilRange)
+
+ ClimateSoilRangeInteract <- glmer(trait~(PC1+PC2+PC3+PC1s+PC2s+PC3s)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoilRangeInteract)
+
+
+# Climate plus canopy model
+ ClimateCanopy <- glmer(trait~PC1+PC2+PC3+Canopy+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateCanopy)
+
+ ClimateCanopyRange <- glmer(trait~PC1+PC2+PC3+Canopy+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateCanopyRange)
+
+ ClimateCanopyRangeInteract <- glmer(trait~(PC1+PC2+PC3+Canopy)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateCanopyRangeInteract)
+
+
+# Soil plus canopy model 
+ SoilCanopy <- glmer(trait~PC1s+PC2s+PC3s+Canopy+(1|Pop), data = scaled, REML = FALSE)
+ summary(SoilCanopy)
+
+ SoilCanopyRange <- glmer(trait~PC1s+PC2s+PC3s+Canopy+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(SoilCanopyRange)
+
+ SoilCanopyRangeInteract <- glmer(trait~(PC1s+PC2s+PC3s+Canopy)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(SoilCanopyRangeInteract)
+
+
+# Climate, soil and canopy model
+ ClimateSoilCanopy <- glmer(trait~PC1+PC2+PC3+PC1s+PC2s+PC3s+Canopy+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoilCanopy)
+
+ ClimateSoilCanopyRange <- glmer(trait~PC1+PC2+PC3+PC1s+PC2s+PC3s+Canopy+Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoilCanopyRange)
+
+ ClimateSoilCanopyRangeInteract <- glmer(trait~(PC1+PC2+PC3+PC1s+PC2s+PC3s+Canopy)*Range+(1|Pop), data = scaled, REML = FALSE)
+ summary(ClimateSoilCanopyRangeInteract)
+
+
+ # Model ranking based on Akaike Information Criterion (AIC) and coefficient of determination (R2)
+performance <- compare_performance(Null, Range, Climate, ClimateRange, ClimateRangeInteract, Soil, SoilRange, SoilRangeInteract, Canopy, CanopyRange, CanopyRangeInteract, ClimateSoil, ClimateSoilRange, ClimateSoilRangeInteract, ClimateCanopy, ClimateCanopyRange, ClimateCanopyRangeInteract, SoilCanopy, SoilCanopyRange, SoilCanopyRangeInteract, ClimateSoilCanopy, ClimateSoilCanopyRange, ClimateSoilCanopyRangeInteract, rank=TRUE) 
+performance
+
+
+
+
+
+#'Explore the relative importance of environmental drivers in each range and conduct variance partitioning 
+ 
+ # Get bioclimatic and soil PCs scores for each range to use in the regression # Only include PCs that explain >10% of the variation in the data
+pcaBioclim <- pca$x[,1:3]
+pcaBioclim
+
+pcaSoil <- pca$x[,1:3]
+pcaSoil
+
+ # Define the model
+model <- lmer(trait~PC1+PC2+PC3+PC1s+PC2s+PC3s+Canopy+(1|Pop), data = EU/US/or China, REML = FALSE)
+summary(model)
+
+
+ # Conduct variance partitioning for groups of variables 
+R2_BMc <- partR2(model,
+                 partbatch = list(Climate = c("PC1", "PC2", "PC3"),
+                                  SoilNutrients=c("PC1s", "PC2s", "PC3s"), 
+                                  Light availability=c("Canopy")),
+                 R2_type = "marginal", nboot = 1000)
+summary(R2_BMc)
+
+
+ # Generate stacked barplots to visualize the percentage of variance explained by different drivers. Data comprises three columns: Range (EU, US and China), Factor (specific environemental driver) and Value (the percentage of variance explained by different drivers, extracted from the previous command above)  
+p <- ggplot(data, aes(x = Range, y= Value, fill=Factor)) +
+  geom_col() + 
+  guides(fill = guide_legend(reverse = TRUE)) +  theme(text = element_text(size = 40)) +xlab("") + ylab("Variance (%)") 
+
+
+p + geom_bar(stat="identity",color="black", size=0.9) + scale_fill_manual(values=c("gray",
+                                                                         "green",
+                                                                         "lightblue",
+                                                                         "chocolate")) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(expand=c(0,0),limits=c(0,50.13)) + theme(axis.line = element_line(size = 0.9, colour = "black")) + theme(axis.ticks.length=unit(.25, "cm")) + theme(axis.ticks = element_line(size = 0.9, colour = "black")) + theme(legend.position="none")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
